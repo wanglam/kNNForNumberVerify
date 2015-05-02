@@ -1,0 +1,217 @@
+<html>
+	<head>
+		<title>Canvas</title>
+		<style type="text/css">
+			body{
+				margin: 0px;
+				padding: 0px;
+			}
+			#canvasWrapper{
+				border:1px solid black;
+				width: 300px;
+				margin: 20px auto;
+			}
+			#resultWrapper{
+				width: 100%;
+			}
+			#resultWrapper p{
+				margin:0px;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="canvasWrapper">
+			<canvas id="canvas" width="300" height="300"></canvas>
+			<button id="verifyButton">verify</button>
+			<button id="clearButton">clear</button>
+		</div>
+		<div id="resultWrapper">
+		</div>
+		<script type="text/javascript" src="math.min.js"></script>
+		<script type="text/javascript" src="zepto.min.js"></script>
+		<script type="text/javascript">
+			var canvas = document.getElementById("canvas");
+			var startDraw = false;
+			var context = canvas.getContext('2d');
+			var worker = new Worker("calculate.js");
+			context.lineWidth = 8;
+			context.strokeStyle = "#ff0000";
+			canvas.addEventListener("mousedown",function(e){
+				startDraw = true;
+				context.beginPath();
+				context.moveTo(e.offsetX,e.offsetY);
+			});
+			canvas.addEventListener("mousemove",function(e){
+				if(startDraw){
+					context.lineTo(e.offsetX,e.offsetY);
+					context.stroke();
+				}
+			});
+			canvas.addEventListener("mouseup",function(e){
+				startDraw = false;
+				context.save();
+			});
+			canvas.addEventListener("mouseout",function(e){
+				startDraw = false;
+				context.save();
+			});
+			document.getElementById("clearButton").addEventListener("click",function(){
+				context.clearRect(0,0,300,300);
+			});
+			document.getElementById("verifyButton").addEventListener("click",function(){
+				var data = context.getImageData(0,0,300,300).data;
+				var top = -1;
+				var left = -1;
+				var right = -1;
+				var bottom = -1;
+
+				for(var i=0;i<300;i++){
+					var findFlag = false;
+					for(var j=0;j<300;j++){
+						var tbase = 4*(300*i+j);
+						var tn = data[tbase];
+						if(tn !== 0){
+							findFlag = true;
+							break;
+						}
+					}
+					if(findFlag){
+						if(top === -1){
+							top = i;
+						}
+						bottom = i;
+					}
+				}
+				for(var i=0;i<300;i++){
+					var findFlag = false;
+					for(var j=0;j<300;j++){
+						var tbase = 4*(300*j+i);
+						var ln = data[tbase];
+						if(ln !== 0){
+							findFlag = true;
+							break;
+						}
+					}
+					if(findFlag){
+						if(left === -1){
+							left = i;
+						}
+						right = i;
+					}
+				}
+				right += 1;
+				bottom += 1;
+				var newData = [];
+				for(var i=top;i<bottom;i++){
+					for(var j=left;j<right;j++){
+						var base = 4*(300*i+j);
+						if(data[base] == 0){
+							newData.push(0);
+						}else{
+							newData.push(1);
+						}
+					}
+				}
+				var colums = right-left;
+				var rows = bottom-top;
+				var results = [];
+				for(var i=0;i<rows;i++){
+					var temp = [];
+					for(var j=0;j<colums;j++){
+						temp.push(newData[i*colums+j]);
+					}
+					results.push(temp);
+				}
+				var results = getSquareArray(results);
+				var currentRow = -1;
+				var inputData = myResize(math.matrix(results),32,32);
+				results = [];
+				inputData.forEach(function(value,index,matrix){
+					if(index[0]>currentRow){
+						if(results[currentRow]!==undefined){
+							results[currentRow] = "<p>"+results[currentRow].join("")+"</p>";
+						}
+						results.push(new Array());
+						currentRow = index[0];
+					}
+					results[currentRow].push(value);
+				});
+				if(results[currentRow]!==undefined){
+					results[currentRow] = results[currentRow].join("");
+				}
+				var ele = document.getElementById("resultWrapper");
+				ele.innerHTML = results.join("");
+				worker.postMessage({real:inputData._data});
+				worker.onmessage = function(evt){
+					alert(evt.data)
+				};
+			});
+
+			function myResize(mat,w,h){
+				var newArr = math.zeros(h,w);
+				var oh = mat.size()[0];
+				var ow = mat.size()[1];
+				var hsize = math.round(oh/h);
+				var wsize = math.round(ow/w);
+
+				for(var i=0,ii=0;i<oh&&ii<h;i+=hsize,ii++){
+					for(var j=0,jj=0;j<ow&&jj<w;j+=wsize,jj++){
+						// console.log([i,Math.min(oh,i+hsize)],[j,Math.min(ow,j+wsize)]);
+						var subset = mat.subset(math.index([i,Math.min(oh,i+hsize)],[j,Math.min(ow,j+wsize)]));
+						var data = getTimesMaxData(subset);
+						newArr._data[ii][jj] = data;
+					}
+				}
+				return newArr;
+			}
+
+			function getTimesMaxData(data){
+				var temp = {};
+				data.forEach(function(value,index,matrix){
+					if(temp[value]===undefined){
+						temp[value] = 0;
+					}
+					temp[value] = temp[value]+1;
+				});
+				if(temp[1]===undefined||temp[0]>temp[1]){
+					return 0
+				}
+				return 1;
+			}
+
+			function getSquareArray(data){
+				var colums = data[0].length;
+				var rows = data.length;
+				var max = math.max(colums,rows);
+				if(rows<max){
+					var temp = 0;
+					while(data.length<max){
+						var arr = [];
+						for(var i=0;i<max;i++){
+							arr.push(0);
+						}
+						if(temp%2===0){
+							data.push(temp);
+						}else{
+							data.unshift(temp);
+						}
+						temp++;
+					}
+				}else if(colums<max){
+					for(var i=0;i<max;i++){
+						var temp = 0;
+						while(data[i].length<max){
+							if(temp%2===0){
+								data[i].push(0);
+							}else{
+								data[i].unshift(0);
+							}
+							temp++;
+						}
+					}
+				}
+				return data;
+			}
+		</script>
+	</body>
+</html>
